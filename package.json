@@ -1,0 +1,23 @@
+{
+  "name": "pulse-oscilla-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.10"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "typecheck": "tsc -b packages/protocol packages/host-agent packages/cli",
+    "dev": "npm --workspace pulse-oscilla run dev -- --workspace \"$INIT_CWD\"",
+    "start": "npm --workspace pulse-oscilla run start -- --workspace \"$INIT_CWD\"",
+    "smoke:pairing": "npm run typecheck && node scripts/smoke-pairing.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "typescript": "^5.4.5"
+  }
+}

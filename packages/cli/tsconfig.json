@@ -1,0 +1,29 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@pulse-oscilla/host-agent": [
+        "../host-agent/src/index.ts"
+      ],
+      "@pulse-oscilla/protocol": [
+        "../protocol/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../protocol"
+    },
+    {
+      "path": "../host-agent"
+    }
+  ]
+}
+
