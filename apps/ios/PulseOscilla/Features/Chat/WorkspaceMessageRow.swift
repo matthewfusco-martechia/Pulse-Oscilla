@@ -3,6 +3,8 @@ import UIKit
 
 struct WorkspaceMessageRow: View {
     let message: AgentChatMessage
+    var showsAssistantHeader = true
+    var showsAssistantActions = true
 
     var body: some View {
         HStack(alignment: .bottom) {
@@ -67,7 +69,7 @@ struct WorkspaceMessageRow: View {
 
     private var assistantBubble: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let title = message.title, !title.isEmpty {
+            if showsAssistantHeader, let title = message.title, !title.isEmpty {
                 WorkspaceMessageHeader(title: title, message: message)
             }
 
@@ -87,7 +89,7 @@ struct WorkspaceMessageRow: View {
                     .foregroundStyle(.red)
             }
 
-            if message.role == .assistant, message.status != .streaming, !displayBody.isEmpty {
+            if showsAssistantActions, message.role == .assistant, message.status != .streaming, !displayBody.isEmpty {
                 WorkspaceAssistantActionRow(copyText: displayBody)
             }
         }

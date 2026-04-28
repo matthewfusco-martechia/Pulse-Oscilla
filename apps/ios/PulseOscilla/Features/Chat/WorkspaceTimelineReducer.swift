@@ -9,8 +9,7 @@ enum WorkspaceTimelineReducer {
         let dedupedFileChanges = removeDuplicateFileChangeMessages(in: dedupedUsers)
         let dedupedAssistant = removeDuplicateAssistantMessages(in: dedupedFileChanges)
         let withoutCompletionMarkers = removeSuccessfulCompletionMarkers(in: dedupedAssistant)
-        let coalescedAssistantTurns = coalesceAssistantMessagesByTurn(in: withoutCompletionMarkers)
-        return normalizeForDisplay(coalescedAssistantTurns)
+        return normalizeForDisplay(withoutCompletionMarkers)
     }
 
     static func assistantResponseAnchorMessageId(in messages: [AgentChatMessage], activeTurnId: String?) -> UUID? {
@@ -43,17 +42,10 @@ enum WorkspaceTimelineReducer {
 
     private static func sanitizeAssistantTranscriptIfNeeded(_ text: String, role: AgentChatRole) -> String {
         guard role == .assistant else { return text }
-        guard text.contains("OpenAI Codex")
-            || text.contains("Reading additional input from stdin")
-            || text.contains("workdir:")
-            || text.contains("session id:")
-        else {
-            return dedupeAdjacentLines(in: text)
-        }
-
         var output: [String] = []
         var isInsideMetadataFence = false
         var shouldDropNextPromptEcho = false
+        var isDroppingRawTranscript = false
 
         for line in text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -79,6 +71,24 @@ enum WorkspaceTimelineReducer {
                 }
             }
 
+            if shouldStartDroppingRawTranscript(trimmed) {
+                isDroppingRawTranscript = true
+                continue
+            }
+
+            if isDroppingRawTranscript {
+                if isLikelyNaturalLanguageLine(trimmed) {
+                    isDroppingRawTranscript = false
+                } else {
+                    continue
+                }
+            }
+
+            if isLikelyRawTranscriptLine(trimmed) {
+                isDroppingRawTranscript = true
+                continue
+            }
+
             output.append(line)
         }
 
@@ -101,6 +111,64 @@ enum WorkspaceTimelineReducer {
 
     private static func isLikelyPromptEcho(_ line: String) -> Bool {
         !line.isEmpty && line.count <= 120 && !line.contains(".") && !line.contains("?") && !line.contains("!")
+    }
+
+    private static func shouldStartDroppingRawTranscript(_ line: String) -> Bool {
+        line.hasPrefix("/bin/")
+            || line.hasPrefix("exec")
+            || line.hasPrefix("succeeded in ")
+            || line.hasPrefix("failed in ")
+            || line.hasPrefix("tokens used")
+            || line.contains(" in /Users/")
+    }
+
+    private static func isLikelyRawTranscriptLine(_ line: String) -> Bool {
+        guard !line.isEmpty else { return false }
+        let rawPrefixes = [
+            "{",
+            "}",
+            "\"",
+            "import ",
+            "export ",
+            "interface ",
+            "const ",
+            "let ",
+            "var ",
+            "async function ",
+            "function ",
+            "return ",
+            "if ",
+            "#!/usr/bin/env "
+        ]
+
+        if rawPrefixes.contains(where: { line.hasPrefix($0) }) {
+            return true
+        }
+
+        return line.range(of: #"^\d+\s+\S"#, options: .regularExpression) != nil
+    }
+
+    private static func isLikelyNaturalLanguageLine(_ line: String) -> Bool {
+        guard !line.isEmpty else { return false }
+        let naturalPrefixes = [
+            "I ",
+            "I'",
+            "I’",
+            "The ",
+            "This ",
+            "That ",
+            "It ",
+            "There ",
+            "Here ",
+            "You ",
+            "Your ",
+            "Findings",
+            "Issues",
+            "Recommendations",
+            "Summary",
+            "Next "
+        ]
+        return naturalPrefixes.contains(where: { line.hasPrefix($0) })
     }
 
     private static func dedupeAdjacentLines(in text: String) -> String {

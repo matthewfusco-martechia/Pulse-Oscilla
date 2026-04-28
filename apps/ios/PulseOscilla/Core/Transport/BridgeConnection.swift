@@ -1124,7 +1124,7 @@ final class BridgeConnection {
 
         let lines = text.components(separatedBy: .newlines)
         if lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "codex" {
-            let response = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            let response = sanitizedCodexAssistantText(from: Array(lines.dropFirst()))
             return response.isEmpty ? nil : "\(response)\n"
         }
 
@@ -1137,6 +1137,97 @@ final class BridgeConnection {
         }
 
         return nil
+    }
+
+    private func sanitizedCodexAssistantText(from lines: [String]) -> String {
+        var output: [String] = []
+        var isDroppingToolTranscript = false
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if shouldStartDroppingCodexToolTranscript(trimmed) {
+                isDroppingToolTranscript = true
+                continue
+            }
+
+            if isDroppingToolTranscript {
+                if isLikelyNaturalLanguageCodexLine(trimmed) {
+                    isDroppingToolTranscript = false
+                } else {
+                    continue
+                }
+            }
+
+            guard !isLikelyRawCodeTranscriptLine(trimmed) else {
+                isDroppingToolTranscript = true
+                continue
+            }
+
+            output.append(line)
+        }
+
+        return output
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func shouldStartDroppingCodexToolTranscript(_ line: String) -> Bool {
+        line.hasPrefix("/bin/")
+            || line.hasPrefix("exec")
+            || line.hasPrefix("succeeded in ")
+            || line.hasPrefix("failed in ")
+            || line.hasPrefix("tokens used")
+            || line.contains(" in /Users/")
+    }
+
+    private func isLikelyRawCodeTranscriptLine(_ line: String) -> Bool {
+        guard !line.isEmpty else { return false }
+        let rawPrefixes = [
+            "{",
+            "}",
+            "\"",
+            "import ",
+            "export ",
+            "interface ",
+            "const ",
+            "let ",
+            "var ",
+            "async function ",
+            "function ",
+            "return ",
+            "if ",
+            "}",
+            "#!/usr/bin/env "
+        ]
+        if rawPrefixes.contains(where: { line.hasPrefix($0) }) {
+            return true
+        }
+
+        return line.range(of: #"^\d+\s+\S"#, options: .regularExpression) != nil
+    }
+
+    private func isLikelyNaturalLanguageCodexLine(_ line: String) -> Bool {
+        guard !line.isEmpty else { return false }
+        let naturalPrefixes = [
+            "I ",
+            "I'",
+            "I’",
+            "The ",
+            "This ",
+            "That ",
+            "It ",
+            "There ",
+            "Here ",
+            "You ",
+            "Your ",
+            "Findings",
+            "Issues",
+            "Recommendations",
+            "Summary",
+            "Next "
+        ]
+        return naturalPrefixes.contains(where: { line.hasPrefix($0) })
     }
 
     private func isProviderStartEvent(_ text: String) -> Bool {

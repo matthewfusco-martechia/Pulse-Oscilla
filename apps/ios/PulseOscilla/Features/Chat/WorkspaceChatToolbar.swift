@@ -54,28 +54,19 @@ struct WorkspaceChatToolbar: ToolbarContent {
                 }
             }
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: selectedProvider.symbol)
-                    .font(AppFont.system(size: 16, weight: .medium))
-                    .frame(width: 20, height: 20)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(selectedProvider.shortTitle)
-                        .font(AppFont.headline())
-                        .lineLimit(1)
-                    Text(providerSubtitle)
-                        .font(AppFont.caption(weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+            HStack(spacing: 7) {
+                Text(selectedProvider.shortTitle)
+                    .font(AppFont.headline())
+                    .lineLimit(1)
 
                 Image(systemName: "chevron.down")
                     .font(AppFont.caption(weight: .semibold))
                     .foregroundStyle(.secondary)
             }
             .foregroundStyle(.primary)
+            .frame(minWidth: 96)
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
             .adaptiveGlass(.regular, in: Capsule())
         }
         .accessibilityLabel("Choose code agent")
