@@ -29,6 +29,19 @@
 	<string>Pulse Oscilla scans the host CLI pairing QR code.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Pulse Oscilla connects directly to your local development machine.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Geist-Bold.ttf</string>
+		<string>Geist-Medium.ttf</string>
+		<string>Geist-Regular.ttf</string>
+		<string>Geist-SemiBold.ttf</string>
+		<string>GeistMono-Bold.ttf</string>
+		<string>GeistMono-Medium.ttf</string>
+		<string>GeistMono-Regular.ttf</string>
+		<string>JetBrainsMono-Bold.ttf</string>
+		<string>JetBrainsMono-Medium.ttf</string>
+		<string>JetBrainsMono-Regular.ttf</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
@@ -46,4 +59,3 @@
 	</array>
 </dict>
 </plist>
-

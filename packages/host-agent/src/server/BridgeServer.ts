@@ -11,7 +11,7 @@ import {
   type PairingHelloPayload,
   type TerminalCreatePayload
 } from "@pulse-oscilla/protocol";
-import { AgentOrchestrator } from "../agents/AgentOrchestrator.js";
+import { AgentBridgeError, AgentOrchestrator } from "../agents/AgentOrchestrator.js";
 import { AuditLog } from "../audit/AuditLog.js";
 import { FileService } from "../files/FileService.js";
 import { GitService } from "../git/GitService.js";
@@ -167,11 +167,16 @@ export class BridgeServer {
         send(makeResponse(request, responsePayload));
       }
     } catch (error) {
-      send(makeError({
+      const errorInput: Parameters<typeof makeError>[0] = {
         requestId: request.requestId,
-        code: "REQUEST_FAILED",
-        message: error instanceof Error ? error.message : "Request failed"
-      }));
+        code: error instanceof AgentBridgeError ? error.code : "REQUEST_FAILED",
+        message: error instanceof Error ? error.message : "Request failed",
+        retryable: error instanceof AgentBridgeError ? error.code === "AGENT_UNAVAILABLE" : false
+      };
+      if (error instanceof AgentBridgeError && error.details !== undefined) {
+        errorInput.details = error.details;
+      }
+      send(makeError(errorInput));
     }
   }
 
@@ -214,6 +219,8 @@ export class BridgeServer {
         return this.processes.kill(requiredNumber(request.payload, "pid"));
       case "preview.ports":
         return this.ports.list();
+      case "agent.providers":
+        return this.agents.listProviders();
       case "terminal.create":
         return this.pty.create(request as BridgeRequest<TerminalCreatePayload>, send);
       case "terminal.stdin":
@@ -230,6 +237,13 @@ export class BridgeServer {
         return { ok: true };
       case "agent.run":
         return this.agents.run(request as BridgeRequest<AgentRunPayload>, send);
+      case "agent.stdin":
+        await this.agents.stdin(
+          requiredProvider(request.payload),
+          requiredStreamId(request),
+          requiredString(request.payload, "data")
+        );
+        return { ok: true };
       case "agent.cancel":
         await this.agents.cancel(requiredProvider(request.payload), requiredStreamId(request));
         return { ok: true };
@@ -238,7 +252,6 @@ export class BridgeServer {
       case "files.diff":
       case "files.watch":
       case "preview.open":
-      case "agent.stdin":
         throw new Error(`Capability not implemented yet: ${request.capability}`);
     }
   }

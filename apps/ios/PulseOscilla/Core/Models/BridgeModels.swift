@@ -21,6 +21,7 @@ enum Capability: String, Codable, CaseIterable, Identifiable {
     case gitPush = "git.push"
     case gitPull = "git.pull"
     case gitBranch = "git.branch"
+    case agentProviders = "agent.providers"
     case agentRun = "agent.run"
     case agentStdin = "agent.stdin"
     case agentCancel = "agent.cancel"

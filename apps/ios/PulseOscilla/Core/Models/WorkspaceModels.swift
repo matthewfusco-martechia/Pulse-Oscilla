@@ -110,8 +110,29 @@ struct AgentRunPayload: Codable {
     let customCommand: String?
 }
 
+struct AgentInputPayload: Codable {
+    let provider: AgentProviderKind
+    let data: String
+}
+
 struct AgentRunResult: Codable, Hashable {
     let streamId: String
+}
+
+struct AgentProvidersResult: Codable, Hashable {
+    let providers: [AgentAvailabilityPayload]
+}
+
+struct AgentAvailabilityPayload: Codable, Hashable, Identifiable {
+    let provider: AgentProviderKind
+    let displayName: String
+    let available: Bool
+    let reason: String?
+    let command: String?
+    let resolvedPath: String?
+    let version: String?
+
+    var id: AgentProviderKind { provider }
 }
 
 struct AgentEventPayload: Codable, Hashable {
@@ -119,6 +140,223 @@ struct AgentEventPayload: Codable, Hashable {
     let text: String?
     let path: String?
     let data: JSONValue?
+}
+
+enum AgentChatRole: String, Hashable, Codable {
+    case user
+    case assistant
+    case system
+}
+
+enum AgentChatStatus: String, Hashable, Codable {
+    case ready
+    case streaming
+    case needsApproval
+    case completed
+    case failed
+}
+
+enum AgentMessageKind: String, Hashable, Codable {
+    case chat
+    case thinking
+    case toolActivity
+    case fileChange
+    case commandExecution
+    case userInputPrompt
+}
+
+enum AgentMessageDeliveryState: String, Hashable, Codable {
+    case pending
+    case confirmed
+    case failed
+}
+
+enum AgentWorkItemState: String, Hashable, Codable {
+    case running
+    case completed
+    case blocked
+    case failed
+}
+
+struct AgentWorkItem: Identifiable, Hashable, Codable {
+    let id: UUID
+    var kind: String
+    var title: String
+    var detail: String
+    var path: String?
+    var state: AgentWorkItemState
+
+    init(
+        id: UUID = UUID(),
+        kind: String,
+        title: String,
+        detail: String = "",
+        path: String? = nil,
+        state: AgentWorkItemState = .running
+    ) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.detail = detail
+        self.path = path
+        self.state = state
+    }
+}
+
+struct AgentChatMessage: Identifiable, Hashable, Codable {
+    let id: UUID
+    let role: AgentChatRole
+    var kind: AgentMessageKind
+    var title: String?
+    var body: String
+    var provider: AgentProviderKind?
+    var streamId: String?
+    var turnId: String?
+    var itemId: String?
+    var isStreaming: Bool
+    var deliveryState: AgentMessageDeliveryState
+    var status: AgentChatStatus
+    var workItems: [AgentWorkItem]
+    let createdAt: Date
+    var orderIndex: Int
+
+    init(
+        id: UUID = UUID(),
+        role: AgentChatRole,
+        kind: AgentMessageKind = .chat,
+        title: String? = nil,
+        body: String,
+        provider: AgentProviderKind? = nil,
+        streamId: String? = nil,
+        turnId: String? = nil,
+        itemId: String? = nil,
+        isStreaming: Bool = false,
+        deliveryState: AgentMessageDeliveryState = .confirmed,
+        status: AgentChatStatus = .ready,
+        workItems: [AgentWorkItem] = [],
+        createdAt: Date = Date(),
+        orderIndex: Int = AgentMessageOrderCounter.next()
+    ) {
+        self.id = id
+        self.role = role
+        self.kind = kind
+        self.title = title
+        self.body = body
+        self.provider = provider
+        self.streamId = streamId
+        self.turnId = turnId
+        self.itemId = itemId
+        self.isStreaming = isStreaming
+        self.deliveryState = deliveryState
+        self.status = status
+        self.workItems = workItems
+        self.createdAt = createdAt
+        self.orderIndex = orderIndex
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case role
+        case kind
+        case title
+        case body
+        case provider
+        case streamId
+        case turnId
+        case itemId
+        case isStreaming
+        case deliveryState
+        case status
+        case workItems
+        case createdAt
+        case orderIndex
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        role = try container.decode(AgentChatRole.self, forKey: .role)
+        kind = try container.decodeIfPresent(AgentMessageKind.self, forKey: .kind) ?? .chat
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        body = try container.decodeIfPresent(String.self, forKey: .body) ?? ""
+        provider = try container.decodeIfPresent(AgentProviderKind.self, forKey: .provider)
+        streamId = try container.decodeIfPresent(String.self, forKey: .streamId)
+        turnId = try container.decodeIfPresent(String.self, forKey: .turnId)
+        itemId = try container.decodeIfPresent(String.self, forKey: .itemId)
+        status = try container.decodeIfPresent(AgentChatStatus.self, forKey: .status) ?? .ready
+        isStreaming = try container.decodeIfPresent(Bool.self, forKey: .isStreaming) ?? (status == .streaming)
+        deliveryState = try container.decodeIfPresent(AgentMessageDeliveryState.self, forKey: .deliveryState)
+            ?? (status == .failed ? .failed : .confirmed)
+        workItems = try container.decodeIfPresent([AgentWorkItem].self, forKey: .workItems) ?? []
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        orderIndex = try container.decodeIfPresent(Int.self, forKey: .orderIndex) ?? AgentMessageOrderCounter.next()
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(role, forKey: .role)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encode(body, forKey: .body)
+        try container.encodeIfPresent(provider, forKey: .provider)
+        try container.encodeIfPresent(streamId, forKey: .streamId)
+        try container.encodeIfPresent(turnId, forKey: .turnId)
+        try container.encodeIfPresent(itemId, forKey: .itemId)
+        try container.encode(isStreaming, forKey: .isStreaming)
+        try container.encode(deliveryState, forKey: .deliveryState)
+        try container.encode(status, forKey: .status)
+        try container.encode(workItems, forKey: .workItems)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(orderIndex, forKey: .orderIndex)
+    }
+}
+
+enum AgentMessageOrderCounter {
+    static func next() -> Int {
+        Int(Date().timeIntervalSince1970 * 1_000_000)
+    }
+}
+
+struct WorkspaceConversation: Identifiable, Hashable, Codable {
+    let id: UUID
+    var title: String
+    var workspaceRoot: String
+    var provider: AgentProviderKind
+    var messages: [AgentChatMessage]
+    var isPinned: Bool
+    var createdAt: Date
+    var updatedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        title: String,
+        workspaceRoot: String,
+        provider: AgentProviderKind = .codex,
+        messages: [AgentChatMessage] = [],
+        isPinned: Bool = false,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.title = title
+        self.workspaceRoot = workspaceRoot
+        self.provider = provider
+        self.messages = messages
+        self.isPinned = isPinned
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    var preview: String {
+        messages
+            .reversed()
+            .first { !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }?
+            .body
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? "No messages yet"
+    }
 }
 
 enum AgentProviderKind: String, Codable, CaseIterable, Identifiable {
@@ -139,6 +377,32 @@ enum AgentProviderKind: String, Codable, CaseIterable, Identifiable {
             "OpenCode"
         case .custom:
             "Custom"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .claudeCode:
+            "Claude"
+        case .codex:
+            "Codex"
+        case .opencode:
+            "OpenCode"
+        case .custom:
+            "Custom"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .claudeCode:
+            "sparkles"
+        case .codex:
+            "hexagon"
+        case .opencode:
+            "chevron.left.forwardslash.chevron.right"
+        case .custom:
+            "terminal"
         }
     }
 }

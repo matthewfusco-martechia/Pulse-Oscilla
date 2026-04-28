@@ -2,6 +2,8 @@
 
 Pulse Oscilla is a local-first bridge between an iPhone and a developer machine. It is not remote desktop or screen mirroring; it exposes command-level primitives for terminal sessions, files, git, local previews, and AI coding agents running on the host machine.
 
+The product model follows a self-hostable, local-first pattern: the host machine owns code, credentials, git state, shell access, and AI-agent processes; the iPhone is a paired controller. See [Privacy and Local-First Model](docs/privacy-local-first.md) for the App Store privacy posture and [App Store Readiness](docs/app-store-readiness.md) for release gates.
+
 ## Repository Layout
 
 ```text
@@ -14,32 +16,54 @@ docs/architecture.md  Production architecture and protocol notes
 
 ## Host Agent
 
-Install dependencies, then start the host from a local repository:
+Install dependencies, then start the host from the repository or workspace you want the phone to control:
 
 ```bash
 npm install
-npm run dev
+npm run host
 ```
 
 For a longer setup window while installing the iOS app on a physical device:
 
 ```bash
-npm run dev -- --pairing-ttl-minutes 60
+npm run host -- --pairing-ttl-minutes 60
 ```
 
 If the host is being launched by an automation session and you cannot answer the CLI trust prompt directly, allow the first QR holder to pair:
 
 ```bash
-npm run dev -- --pairing-ttl-minutes 60 --trust-on-first-use
+npm run host -- --pairing-ttl-minutes 60 --trust-on-first-use
 ```
 
-The CLI starts a local WebSocket bridge, creates a short-lived pairing session, and prints a QR payload that the iOS client can scan. The workspace exposed to iOS is the directory where you run `npm run dev`.
+The CLI starts a local WebSocket bridge, creates a short-lived pairing session, and prints a QR payload that the iOS client can scan. The workspace exposed to iOS is the directory where you run `npm run host`.
+
+For this checkout you can also run the local CLI wrapper directly:
+
+```bash
+./bin/pulse-oscilla --pairing-ttl-minutes 60 --trust-on-first-use
+```
+
+After the CLI package is published to npm, the equivalent public command will be:
+
+```bash
+npx pulse-oscilla
+```
+
+For the operational pairing checklist, recovery flow, and security expectations, see [Pairing and Host Start](docs/pairing-host-start.md).
 
 Run the host pairing smoke test:
 
 ```bash
 npm run smoke:pairing
 ```
+
+## Production Readiness Docs
+
+- [App Store Readiness](docs/app-store-readiness.md): release gates, App Review notes, metadata, privacy nutrition labels, support, and rollback readiness.
+- [Privacy and Local-First Model](docs/privacy-local-first.md): data-flow promises, App Store privacy answers, permissions, retention, and user-facing disclosure language.
+- [Pairing and Host Start](docs/pairing-host-start.md): host launch, QR pairing, trust-on-first-use, reconnect expectations, and troubleshooting.
+- [Test Matrix](docs/test-matrix.md): host, iOS, security, network, App Store, and regression coverage required before release.
+- [Phased Parity Plan](docs/phased-parity-plan.md): staged Remodex-inspired parity roadmap while preserving Pulse Oscilla's multi-agent scope.
 
 ## Current Implementation Stage
 

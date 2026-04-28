@@ -149,7 +149,7 @@ private struct PairingCommandCard: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            Text("npx pulse-oscilla\n# repo dev mode:\nnpm run dev -- --pairing-ttl-minutes 60 --trust-on-first-use")
+            Text("./bin/pulse-oscilla --pairing-ttl-minutes 60 --trust-on-first-use\n# or from this repo:\nnpm run host -- --pairing-ttl-minutes 60 --trust-on-first-use")
                 .font(.system(.callout, design: .monospaced).weight(.semibold))
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)

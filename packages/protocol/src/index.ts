@@ -21,6 +21,7 @@ export const capabilities = [
   "git.push",
   "git.pull",
   "git.branch",
+  "agent.providers",
   "agent.run",
   "agent.stdin",
   "agent.cancel",
@@ -145,6 +146,22 @@ export interface AgentRunPayload {
   customCommand?: string;
 }
 
+export interface AgentInputPayload {
+  provider: AgentRunPayload["provider"];
+  data: string;
+}
+
+export interface AgentAvailabilityPayload {
+  provider: AgentRunPayload["provider"];
+  displayName: string;
+  available: boolean;
+  reason?: string;
+  command?: string;
+  resolvedPath?: string;
+  version?: string;
+  details?: unknown;
+}
+
 export interface AgentEventPayload {
   kind:
     | "assistant.text"
@@ -154,7 +171,9 @@ export interface AgentEventPayload {
     | "file.changed"
     | "diff.available"
     | "approval.requested"
-    | "run.completed";
+    | "run.completed"
+    | "run.failed"
+    | "run.cancelled";
   text?: string;
   path?: string;
   data?: unknown;

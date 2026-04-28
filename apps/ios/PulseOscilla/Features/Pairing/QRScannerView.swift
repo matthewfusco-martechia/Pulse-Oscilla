@@ -12,12 +12,19 @@ struct QRScannerView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: QRScannerViewController, context: Context) {}
+
+    static func dismantleUIViewController(_ uiViewController: QRScannerViewController, coordinator: ()) {
+        Task { @MainActor in
+            uiViewController.stopScanning()
+        }
+    }
 }
 
 final class QRScannerViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate {
     var onCode: ((String) -> Void)?
 
     private let session = AVCaptureSession()
+    private let sessionQueue = DispatchQueue(label: "app.pulseoscilla.qr-scanner.session")
     private var previewLayer: AVCaptureVideoPreviewLayer?
     private var didScan = false
 
@@ -35,8 +42,8 @@ final class QRScannerViewController: UIViewController, @preconcurrency AVCapture
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         didScan = false
-        if !session.isRunning {
-            DispatchQueue.global(qos: .userInitiated).async { [session] in
+        sessionQueue.async { [session] in
+            if !session.isRunning {
                 session.startRunning()
             }
         }
@@ -44,8 +51,14 @@ final class QRScannerViewController: UIViewController, @preconcurrency AVCapture
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        if session.isRunning {
-            session.stopRunning()
+        stopScanning()
+    }
+
+    func stopScanning() {
+        sessionQueue.async { [session] in
+            if session.isRunning {
+                session.stopRunning()
+            }
         }
     }
 
@@ -95,7 +108,7 @@ final class QRScannerViewController: UIViewController, @preconcurrency AVCapture
         }
 
         didScan = true
-        session.stopRunning()
+        stopScanning()
         onCode?(value)
     }
 
