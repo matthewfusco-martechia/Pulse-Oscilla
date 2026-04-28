@@ -4,6 +4,7 @@ struct WorkspaceChatToolbar: ToolbarContent {
     @Environment(AppEnvironment.self) private var environment
 
     let workspace: WorkspaceDescriptor?
+    let conversationTitle: String?
     @Binding var selectedProvider: AgentProviderKind
     let openMenu: () -> Void
     let openSettings: () -> Void
@@ -33,43 +34,71 @@ struct WorkspaceChatToolbar: ToolbarContent {
     }
 
     private var providerMenu: some View {
-        Menu {
-            Section("Code agent") {
-                ForEach(AgentProviderKind.allCases) { provider in
-                    let availability = availability(for: provider)
-                    Button {
-                        selectedProvider = provider
-                    } label: {
-                        if selectedProvider == provider {
-                            Label(provider.title, systemImage: "checkmark")
-                        } else {
-                            Label(provider.title, systemImage: provider.symbol)
+        Group {
+            if conversationTitle == nil {
+                Menu {
+                    Section("Code agent") {
+                        ForEach(AgentProviderKind.allCases) { provider in
+                            let availability = availability(for: provider)
+                            Button {
+                                selectedProvider = provider
+                            } label: {
+                                if selectedProvider == provider {
+                                    Label(provider.title, systemImage: "checkmark")
+                                } else {
+                                    Label(provider.title, systemImage: provider.symbol)
+                                }
+                            }
+                            .disabled(availability?.available == false)
+
+                            if availability?.available == false {
+                                Text(availability?.reason ?? "\(provider.title) is not installed")
+                            }
                         }
                     }
-                    .disabled(availability?.available == false)
+                } label: {
+                    providerPill(showsChevron: true)
+                }
+                .accessibilityLabel("Choose code agent")
+            } else {
+                providerPill(showsChevron: false)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(conversationTitle ?? selectedProvider.shortTitle), \(selectedProvider.shortTitle)")
+            }
+        }
+    }
 
-                    if availability?.available == false {
-                        Text(availability?.reason ?? "\(provider.title) is not installed")
-                    }
+    private func providerPill(showsChevron: Bool) -> some View {
+        HStack(spacing: 8) {
+            VStack(spacing: 1) {
+                if let conversationTitle {
+                    Text(conversationTitle)
+                        .font(AppFont.headline())
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    Text(selectedProvider.shortTitle)
+                        .font(AppFont.caption(weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(selectedProvider.shortTitle)
+                        .font(AppFont.headline())
+                        .lineLimit(1)
                 }
             }
-        } label: {
-            HStack(spacing: 7) {
-                Text(selectedProvider.shortTitle)
-                    .font(AppFont.headline())
-                    .lineLimit(1)
 
+            if showsChevron {
                 Image(systemName: "chevron.down")
                     .font(AppFont.caption(weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            .foregroundStyle(.primary)
-            .frame(minWidth: 96)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .adaptiveGlass(.regular, in: Capsule())
         }
-        .accessibilityLabel("Choose code agent")
+        .foregroundStyle(.primary)
+        .frame(minWidth: 96, maxWidth: 220)
+        .padding(.horizontal, 14)
+        .padding(.vertical, conversationTitle == nil ? 10 : 8)
+        .adaptiveGlass(.regular, in: Capsule())
     }
 
     private var quickActionMenu: some View {

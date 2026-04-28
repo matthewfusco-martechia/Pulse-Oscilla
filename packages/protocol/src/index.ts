@@ -17,6 +17,8 @@ export const capabilities = [
   "files.watch",
   "git.status",
   "git.diff",
+  "git.stage",
+  "git.restore",
   "git.commit",
   "git.push",
   "git.pull",

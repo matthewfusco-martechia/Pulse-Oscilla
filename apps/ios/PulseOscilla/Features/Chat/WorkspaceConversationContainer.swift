@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WorkspaceConversationContainer: View {
+    let conversationId: UUID?
     let messages: [AgentChatMessage]
     let revision: Int
     let isAgentRunning: Bool
@@ -90,7 +91,20 @@ struct WorkspaceConversationContainer: View {
             .onAppear {
                 guard !didInitialScroll else { return }
                 didInitialScroll = true
+                primeAnchors(for: timelineMessages)
                 scrollToBottom(proxy)
+            }
+            .onChange(of: conversationId) { _, _ in
+                followsLatest = true
+                pinnedTurnId = nil
+                lastAssistantAnchorId = nil
+                primeAnchors(for: timelineMessages)
+                scrollToBottom(proxy)
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(80))
+                    primeAnchors(for: timelineMessages)
+                    scrollToBottom(proxy)
+                }
             }
             .onChange(of: revision) { _, _ in
                 scrollAfterTimelineChange(proxy, timelineMessages: timelineMessages)
@@ -156,6 +170,14 @@ struct WorkspaceConversationContainer: View {
         withAnimation(.snappy(duration: 0.24)) {
             proxy.scrollTo(id, anchor: UnitPoint(x: 1, y: 0.08))
         }
+    }
+
+    private func primeAnchors(for timelineMessages: [AgentChatMessage]) {
+        latestUserAnchorId = timelineMessages.last(where: { $0.role == .user })?.id
+        lastAssistantAnchorId = WorkspaceTimelineReducer.assistantResponseAnchorMessageId(
+            in: timelineMessages,
+            activeTurnId: timelineMessages.last { $0.role == .assistant }?.turnId
+        )
     }
 
     private var shouldReserveActiveTurnRunway: Bool {

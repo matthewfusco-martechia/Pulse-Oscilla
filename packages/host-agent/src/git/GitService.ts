@@ -12,6 +12,14 @@ export class GitService {
     return this.git(path ? ["diff", "--", path] : ["diff"]);
   }
 
+  stage(path?: string): Promise<CommandResult> {
+    return this.git(path ? ["add", "--", path] : ["add", "--all"]);
+  }
+
+  restore(path?: string): Promise<CommandResult> {
+    return this.git(path ? ["restore", "--source=HEAD", "--staged", "--worktree", "--", path] : ["restore", "--source=HEAD", "--staged", "--worktree", "."]);
+  }
+
   branch(): Promise<CommandResult> {
     return this.git(["branch", "--list", "--all", "--verbose", "--no-abbrev"]);
   }
@@ -61,4 +69,3 @@ export function run(command: string, args: string[], cwd: string): Promise<Comma
     });
   });
 }
-

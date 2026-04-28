@@ -3,6 +3,8 @@ import type { Capability } from "@pulse-oscilla/protocol";
 const highRiskCapabilities = new Set<Capability>([
   "terminal.create",
   "files.write",
+  "git.stage",
+  "git.restore",
   "git.commit",
   "git.push",
   "git.pull",

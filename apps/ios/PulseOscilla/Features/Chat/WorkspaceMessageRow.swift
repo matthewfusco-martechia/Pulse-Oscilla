@@ -32,7 +32,11 @@ struct WorkspaceMessageRow: View {
         case .thinking:
             WorkspaceThinkingCard(message: message, bodyText: displayBody)
         case .toolActivity:
-            WorkspaceStatusCard(message: message, bodyText: displayBody)
+            if let gitDiffText {
+                WorkspaceChangeSetCard(diffText: gitDiffText)
+            } else {
+                WorkspaceStatusCard(message: message, bodyText: displayBody)
+            }
         case .fileChange:
             WorkspaceFileChangeCard(message: message, bodyText: displayBody)
         case .commandExecution:
@@ -87,7 +91,10 @@ struct WorkspaceMessageRow: View {
             }
 
             if showsAssistantActions, message.role == .assistant, message.status != .streaming, !displayBody.isEmpty {
-                WorkspaceAssistantActionRow(copyText: displayBody)
+                WorkspaceAssistantActionRow(
+                    copyText: displayBody,
+                    canCommit: hasCodeChangesInTurn
+                )
             }
         }
         .padding(.vertical, 2)
@@ -97,6 +104,18 @@ struct WorkspaceMessageRow: View {
         WorkspaceTimelineReducer.timelineDisplayText(for: message)
     }
 
+    private var gitDiffText: String? {
+        guard message.title == "Git diff" || message.title == "Code changes" else { return nil }
+        let raw = message.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let display = displayBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.contains("diff --git") { return raw }
+        if display.contains("diff --git") { return display }
+        return nil
+    }
+
+    private var hasCodeChangesInTurn: Bool {
+        message.body.contains("diff --git") || message.body.contains("Created ")
+    }
 }
 
 private struct WorkspaceStatusCard: View {
@@ -547,8 +566,13 @@ private struct WorkspaceCommandPresentation {
 }
 
 private struct WorkspaceAssistantActionRow: View {
+    @Environment(AppEnvironment.self) private var environment
+
     let copyText: String
+    let canCommit: Bool
     @State private var copied = false
+    @State private var isCommitting = false
+    @State private var errorMessage: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -572,9 +596,59 @@ private struct WorkspaceAssistantActionRow: View {
             }
             .buttonStyle(.plain)
 
+            if canCommit {
+                Button {
+                    Task { await commitChanges() }
+                } label: {
+                    Label(isCommitting ? "Committing" : "Commit", systemImage: "checkmark.seal")
+                        .font(AppFont.caption(weight: .semibold))
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .disabled(isCommitting)
+            }
+
             Spacer(minLength: 0)
         }
         .padding(.top, 2)
+        .alert("Commit failed", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private func commitChanges() async {
+        isCommitting = true
+        defer { isCommitting = false }
+
+        do {
+            let message = commitMessage
+            try await environment.connection.send(capability: .gitStage, payload: EmptyPayload())
+            try await environment.connection.send(capability: .gitCommit, payload: GitCommitPayload(message: message))
+            HapticFeedback.shared.triggerNotificationFeedback(.success)
+        } catch {
+            errorMessage = error.localizedDescription
+            HapticFeedback.shared.triggerNotificationFeedback(.error)
+        }
+    }
+
+    private var commitMessage: String {
+        let firstLine = copyText
+            .split(separator: "\n")
+            .map(String.init)
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            ?? "Apply phone-requested changes"
+
+        let cleaned = firstLine
+            .replacingOccurrences(of: "I’ll ", with: "")
+            .replacingOccurrences(of: "I'll ", with: "")
+            .trimmingCharacters(in: .punctuationCharacters.union(.whitespacesAndNewlines))
+
+        return cleaned.isEmpty ? "Apply phone-requested changes" : String(cleaned.prefix(72))
     }
 }
 

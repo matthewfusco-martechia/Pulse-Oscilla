@@ -26,6 +26,17 @@ final class BridgeConnection {
     var ports: [PortDescriptor] = []
     var agentProviders: [AgentAvailabilityPayload] = []
     var conversations: [WorkspaceConversation] = []
+    var activeConversation: WorkspaceConversation? {
+        guard let activeConversationId else { return nil }
+        return conversations.first { $0.id == activeConversationId }
+    }
+    var activeConversationTurns: [WorkspaceTurn] {
+        if let activeConversationId,
+           let conversation = conversations.first(where: { $0.id == activeConversationId }) {
+            return conversation.turns
+        }
+        return WorkspaceTurnProjector.project(messages: chatMessages)
+    }
     var activeConversationId: UUID?
     var chatMessages: [AgentChatMessage] = []
     var chatRevision = 0
@@ -194,7 +205,6 @@ final class BridgeConnection {
                     state: .completed
                 )
             )
-            finishAgentRun(streamId: streamId, status: .completed)
         } catch {
             if !markConnectionFailedIfNeeded(error) {
                 markAgentFailed(error.localizedDescription)
@@ -418,6 +428,14 @@ final class BridgeConnection {
             gitDiffText = commandText(try decodePayload(CommandResult.self, from: envelope))
             appendEvent("Git diff updated")
             appendToolResult(title: "Git diff", body: gitDiffText.isEmpty ? "No diff output." : gitDiffText)
+        case .gitStage:
+            let output = commandText(try decodePayload(CommandResult.self, from: envelope))
+            appendEvent("Git stage completed")
+            appendToolResult(title: "Staged changes", body: output)
+        case .gitRestore:
+            let output = commandText(try decodePayload(CommandResult.self, from: envelope))
+            appendEvent("Git restore completed")
+            appendToolResult(title: "Reverted changes", body: output)
         case .gitBranch:
             gitBranchesText = commandText(try decodePayload(CommandResult.self, from: envelope))
             appendEvent("Git branches updated")
@@ -1273,6 +1291,7 @@ final class BridgeConnection {
         else { return }
 
         conversations[index].messages = chatMessages
+        conversations[index].turns = WorkspaceTurnProjector.project(messages: chatMessages)
         conversations[index].updatedAt = Date()
         conversations[index].provider = chatMessages.last(where: { $0.provider != nil })?.provider ?? conversations[index].provider
         sortConversations()
@@ -1321,6 +1340,11 @@ final class BridgeConnection {
             let data = try Data(contentsOf: url)
             conversations = try storageDecoder.decode([WorkspaceConversation].self, from: data)
                 .filter { $0.workspaceRoot == workspaceRoot }
+                .map { conversation in
+                    var normalized = conversation
+                    normalized.turns = WorkspaceTurnProjector.project(messages: conversation.messages)
+                    return normalized
+                }
             sortConversations()
             activeConversationId = conversations.first?.id
             chatMessages = conversations.first?.messages ?? []

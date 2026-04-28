@@ -5,10 +5,16 @@ struct WorkspaceComposerView: View {
     @Binding var customAgentCommand: String
     @Binding var requireApprovalForWrites: Bool
     @Binding var selectedProvider: AgentProviderKind
+    @Binding var composerMode: WorkspaceComposerMode
     var isFocused: FocusState<Bool>.Binding
 
     let isAgentRunning: Bool
+    let queuedPrompts: [QueuedWorkspacePrompt]
+    let fileEntries: [FileEntry]
     let onOpenTools: () -> Void
+    let onRemoveQueuedPrompt: (UUID) -> Void
+    let onEditQueuedPrompt: (UUID) -> Void
+    let onRefreshFiles: () async -> Void
     let onRunAction: (WorkspaceQuickAction) -> Void
     let onSend: () -> Void
     let onStop: () -> Void
@@ -33,10 +39,50 @@ struct WorkspaceComposerView: View {
             }
 
             VStack(spacing: 0) {
+                if composerMode == .plan {
+                    WorkspacePlanModeAccessory()
+                        .padding(.horizontal, 10)
+                        .padding(.top, 10)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+
+                if !queuedPrompts.isEmpty {
+                    QueuedDraftsPanel(
+                        prompts: queuedPrompts,
+                        edit: onEditQueuedPrompt,
+                        remove: onRemoveQueuedPrompt
+                    )
+                    .padding(.horizontal, 10)
+                    .padding(.top, 10)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+
                 if showsCommandPanel {
                     WorkspaceComposerCommandPanel(
                         query: commandQuery,
                         select: applyCommand
+                    )
+                    .padding(.horizontal, 10)
+                    .padding(.top, 10)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+
+                if showsFilePanel {
+                    WorkspaceComposerFilePanel(
+                        query: fileQuery,
+                        entries: fileEntries,
+                        refresh: onRefreshFiles,
+                        select: applyFileMention
+                    )
+                    .padding(.horizontal, 10)
+                    .padding(.top, 10)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+
+                if showsSkillPanel {
+                    WorkspaceComposerSkillPanel(
+                        query: skillQuery,
+                        select: applySkill
                     )
                     .padding(.horizontal, 10)
                     .padding(.top, 10)
@@ -57,10 +103,11 @@ struct WorkspaceComposerView: View {
                 }
 
                 WorkspaceComposerBottomBar(
-                    selectedProvider: $selectedProvider,
+                    composerMode: $composerMode,
                     requireApprovalForWrites: $requireApprovalForWrites,
                     isAgentRunning: isAgentRunning,
                     canSend: canSend,
+                    hasQueuedPrompts: !queuedPrompts.isEmpty,
                     onOpenTools: onOpenTools,
                     onSend: onSend,
                     onStop: onStop
@@ -77,12 +124,38 @@ struct WorkspaceComposerView: View {
         draftPrompt.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
     }
 
+    private var showsFilePanel: Bool {
+        activeMention(prefix: "@") != nil
+    }
+
+    private var showsSkillPanel: Bool {
+        activeMention(prefix: "$") != nil
+    }
+
     private var commandQuery: String {
         draftPrompt
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .dropFirst()
             .lowercased()
             .description
+    }
+
+    private var fileQuery: String {
+        activeMention(prefix: "@") ?? ""
+    }
+
+    private var skillQuery: String {
+        activeMention(prefix: "$") ?? ""
+    }
+
+    private func activeMention(prefix: Character) -> String? {
+        guard let lastToken = draftPrompt
+            .split(whereSeparator: \.isWhitespace)
+            .last
+        else { return nil }
+
+        guard lastToken.first == prefix else { return nil }
+        return String(lastToken.dropFirst()).lowercased()
     }
 
     private func applyCommand(_ command: WorkspaceComposerCommand) {
@@ -97,6 +170,58 @@ struct WorkspaceComposerView: View {
         HapticFeedback.shared.triggerImpactFeedback(style: .light)
         draftPrompt = command.prompt
         isFocused.wrappedValue = true
+    }
+
+    private func applyFileMention(_ entry: FileEntry) {
+        replaceActiveToken(with: "@\(entry.path)")
+    }
+
+    private func applySkill(_ skill: WorkspaceSkillReference) {
+        replaceActiveToken(with: skill.promptPrefix)
+        if skill.id == "plan" {
+            composerMode = .plan
+        }
+    }
+
+    private func replaceActiveToken(with replacement: String) {
+        var parts = draftPrompt.split(whereSeparator: \.isWhitespace).map(String.init)
+        if parts.isEmpty {
+            draftPrompt = "\(replacement) "
+        } else {
+            parts[parts.count - 1] = replacement
+            draftPrompt = parts.joined(separator: " ") + " "
+        }
+        HapticFeedback.shared.triggerImpactFeedback(style: .light)
+        isFocused.wrappedValue = true
+    }
+}
+
+private struct WorkspacePlanModeAccessory: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checklist")
+                .font(AppFont.caption(weight: .bold))
+                .foregroundStyle(.orange)
+                .frame(width: 22, height: 22)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Plan mode")
+                    .font(AppFont.caption(weight: .bold))
+                    .foregroundStyle(.primary)
+                Text("The agent will propose a plan first and wait before making code changes.")
+                    .font(AppFont.caption2())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .workspaceGlass(
+            tint: Color.orange.opacity(0.08),
+            stroke: Color.orange.opacity(0.18),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
     }
 }
 
@@ -148,6 +273,207 @@ private struct WorkspaceComposerCommandPanel: View {
                 || $0.subtitle.lowercased().contains(query)
                 || $0.name.contains(query)
         }
+    }
+}
+
+private struct WorkspaceComposerFilePanel: View {
+    let query: String
+    let entries: [FileEntry]
+    let refresh: () async -> Void
+    let select: (FileEntry) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            panelHeader(title: "Files", symbol: "doc.text.magnifyingglass") {
+                Task { await refresh() }
+            }
+
+            ForEach(filteredEntries.prefix(6)) { entry in
+                Button {
+                    select(entry)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: entry.kind.symbol)
+                            .font(AppFont.caption(weight: .bold))
+                            .foregroundStyle(entry.kind == .directory ? .blue : .secondary)
+                            .frame(width: 22, height: 22)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.name)
+                                .font(AppFont.caption(weight: .bold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Text(entry.path)
+                                .font(AppFont.caption2())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Color(.secondarySystemFill).opacity(0.48), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if filteredEntries.isEmpty {
+                Text("No matching files. Tap refresh to reload the workspace root.")
+                    .font(AppFont.caption())
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 6)
+            }
+        }
+        .padding(10)
+        .workspaceGlass(cornerRadius: 18)
+    }
+
+    private var filteredEntries: [FileEntry] {
+        let visible = entries.filter { !$0.name.hasPrefix(".") || !$0.name.hasPrefix(".git") }
+        guard !query.isEmpty else { return visible }
+        return visible.filter {
+            $0.name.lowercased().contains(query)
+                || $0.path.lowercased().contains(query)
+        }
+    }
+}
+
+private struct WorkspaceComposerSkillPanel: View {
+    let query: String
+    let select: (WorkspaceSkillReference) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            panelHeader(title: "Skills", symbol: "sparkles", refresh: nil)
+
+            ForEach(filteredSkills.prefix(6)) { skill in
+                Button {
+                    select(skill)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: skill.symbol)
+                            .font(AppFont.caption(weight: .bold))
+                            .foregroundStyle(.blue)
+                            .frame(width: 22, height: 22)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(skill.promptPrefix)
+                                .font(AppFont.caption(weight: .bold))
+                                .foregroundStyle(.primary)
+                            Text(skill.subtitle)
+                                .font(AppFont.caption2())
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Color(.secondarySystemFill).opacity(0.48), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(10)
+        .workspaceGlass(cornerRadius: 18)
+    }
+
+    private var filteredSkills: [WorkspaceSkillReference] {
+        guard !query.isEmpty else { return WorkspaceSkillReference.defaults }
+        return WorkspaceSkillReference.defaults.filter {
+            $0.title.lowercased().contains(query)
+                || $0.promptPrefix.lowercased().contains(query)
+                || $0.subtitle.lowercased().contains(query)
+        }
+    }
+}
+
+@ViewBuilder
+@MainActor
+private func panelHeader(
+    title: String,
+    symbol: String,
+    refresh: (() -> Void)?
+) -> some View {
+    HStack(spacing: 8) {
+        Image(systemName: symbol)
+            .font(AppFont.caption(weight: .bold))
+            .foregroundStyle(.blue)
+        Text(title)
+            .font(AppFont.caption(weight: .bold))
+            .foregroundStyle(.secondary)
+        Spacer(minLength: 0)
+        if let refresh {
+            Button(action: refresh) {
+                Image(systemName: "arrow.clockwise")
+                    .font(AppFont.caption2(weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+private struct QueuedDraftsPanel: View {
+    let prompts: [QueuedWorkspacePrompt]
+    let edit: (UUID) -> Void
+    let remove: (UUID) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                    .font(AppFont.caption(weight: .bold))
+                    .foregroundStyle(.blue)
+                Text("\(prompts.count) queued follow-up\(prompts.count == 1 ? "" : "s")")
+                    .font(AppFont.caption(weight: .bold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+
+            ForEach(prompts.prefix(3)) { prompt in
+                Button {
+                    edit(prompt.id)
+                } label: {
+                    HStack(spacing: 10) {
+                        Text(prompt.prompt)
+                            .font(AppFont.caption())
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+
+                        Spacer(minLength: 0)
+
+                        Button {
+                            remove(prompt.id)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(AppFont.caption2(weight: .bold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 22, height: 22)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove queued prompt")
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Color(.secondarySystemFill).opacity(0.38), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit queued prompt")
+            }
+
+            if prompts.count > 3 {
+                Text("+\(prompts.count - 3) more")
+                    .font(AppFont.caption2(weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .workspaceGlass(cornerRadius: 18)
     }
 }
 
@@ -250,13 +576,12 @@ private enum WorkspaceComposerCommand: String, CaseIterable, Identifiable {
 }
 
 private struct WorkspaceComposerBottomBar: View {
-    @Environment(AppEnvironment.self) private var environment
-
-    @Binding var selectedProvider: AgentProviderKind
+    @Binding var composerMode: WorkspaceComposerMode
     @Binding var requireApprovalForWrites: Bool
 
     let isAgentRunning: Bool
     let canSend: Bool
+    let hasQueuedPrompts: Bool
     let onOpenTools: () -> Void
     let onSend: () -> Void
     let onStop: () -> Void
@@ -272,8 +597,7 @@ private struct WorkspaceComposerBottomBar: View {
             .foregroundStyle(.secondary)
             .accessibilityLabel("Open tools")
 
-            providerMenu
-            approvalMenu
+            modeMenu
 
             Spacer(minLength: 0)
 
@@ -289,6 +613,21 @@ private struct WorkspaceComposerBottomBar: View {
             .accessibilityLabel("Voice input coming soon")
 
             if isAgentRunning {
+                if canSend {
+                    Button {
+                        HapticFeedback.shared.triggerImpactFeedback(style: .light)
+                        onSend()
+                    } label: {
+                        Image(systemName: "arrow.up")
+                            .font(AppFont.caption(weight: .bold))
+                            .foregroundStyle(sendIconColor)
+                            .frame(width: 32, height: 32)
+                            .background(sendBackgroundColor, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Queue follow-up")
+                }
+
                 Button(action: onStop) {
                     Image(systemName: "stop.fill")
                         .font(AppFont.caption(weight: .bold))
@@ -310,7 +649,7 @@ private struct WorkspaceComposerBottomBar: View {
                         .background(sendBackgroundColor, in: Circle())
                 }
                 .buttonStyle(.plain)
-                .disabled(!canSend || selectedProviderUnavailable)
+                .disabled(!canSend)
                 .accessibilityLabel("Send message")
             }
         }
@@ -319,55 +658,30 @@ private struct WorkspaceComposerBottomBar: View {
         .padding(.bottom, 4)
     }
 
-    private var providerMenu: some View {
+    private var modeMenu: some View {
         Menu {
-            ForEach(AgentProviderKind.allCases) { provider in
-                let availability = availability(for: provider)
+            ForEach(WorkspaceComposerMode.allCases) { mode in
                 Button {
                     HapticFeedback.shared.triggerImpactFeedback(style: .light)
-                    selectedProvider = provider
+                    composerMode = mode
                 } label: {
-                    if selectedProvider == provider {
-                        Label(provider.title, systemImage: "checkmark")
+                    if composerMode == mode {
+                        Label(mode.title, systemImage: "checkmark")
                     } else {
-                        Label(provider.title, systemImage: provider.symbol)
+                        Label(mode.title, systemImage: mode.symbol)
                     }
                 }
-                .disabled(availability?.available == false)
-
-                if availability?.available == false {
-                    Text(availability?.reason ?? "\(provider.title) is not installed")
-                }
             }
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: selectedProvider.symbol)
+                Image(systemName: composerMode.symbol)
                     .font(.caption2.weight(.bold))
-                Text(selectedProvider.shortTitle)
-                    .font(AppFont.caption(weight: .semibold))
-                    .strikethrough(selectedProviderUnavailable)
-                Image(systemName: "chevron.down")
-                    .font(AppFont.system(size: 8, weight: .bold))
-            }
-            .foregroundStyle(selectedProviderUnavailable ? .red : .secondary)
-            .contentShape(Capsule())
-        }
-    }
-
-    private var approvalMenu: some View {
-        Menu {
-            Toggle("Ask before writing files", isOn: $requireApprovalForWrites)
-            Text(requireApprovalForWrites ? "The agent asks before sensitive changes." : "The agent may write files directly.")
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: requireApprovalForWrites ? "lock" : "lock.open")
-                    .font(.caption2.weight(.bold))
-                Text(requireApprovalForWrites ? "Ask" : "Auto")
+                Text(composerMode.title)
                     .font(AppFont.caption(weight: .semibold))
                 Image(systemName: "chevron.down")
                     .font(AppFont.system(size: 8, weight: .bold))
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(composerMode == .plan ? .orange : .blue)
             .contentShape(Capsule())
         }
     }
@@ -377,14 +691,6 @@ private struct WorkspaceComposerBottomBar: View {
     }
 
     private var sendBackgroundColor: Color {
-        canSend && !selectedProviderUnavailable ? Color(.label) : Color(.systemGray5)
-    }
-
-    private var selectedProviderUnavailable: Bool {
-        availability(for: selectedProvider)?.available == false
-    }
-
-    private func availability(for provider: AgentProviderKind) -> AgentAvailabilityPayload? {
-        environment.connection.agentProviders.first { $0.provider == provider }
+        canSend ? Color(.label) : Color(.systemGray5)
     }
 }

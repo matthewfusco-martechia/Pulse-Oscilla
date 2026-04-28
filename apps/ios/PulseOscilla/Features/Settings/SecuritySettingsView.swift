@@ -2,22 +2,11 @@ import SwiftUI
 
 struct SecuritySettingsView: View {
     @Environment(AppEnvironment.self) private var environment
-    @AppStorage(AppFont.storageKey) private var appFontStyleRawValue = AppFont.defaultStoredStyleRawValue
-    @AppStorage(WorkspaceGlassPreference.storageKey) private var useLiquidGlass = true
-
-    private var appFontStyleBinding: Binding<AppFont.Style> {
-        Binding(
-            get: { AppFont.Style(rawValue: appFontStyleRawValue) ?? AppFont.defaultStyle },
-            set: { appFontStyleRawValue = $0.rawValue }
-        )
-    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 settingsHeader
-
-                SettingsAppearanceCard(appFontStyle: appFontStyleBinding, useLiquidGlass: $useLiquidGlass)
 
                 if let session = environment.connection.acceptedSession {
                     VStack(alignment: .leading, spacing: 12) {
@@ -72,23 +61,17 @@ struct SecuritySettingsView: View {
             .padding()
         }
         .background(Color(.systemBackground).ignoresSafeArea())
-        .navigationTitle("Security")
+        .navigationTitle("Settings")
         .adaptiveNavigationBar()
     }
 
     private var settingsHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Image("AppLogo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
             Text("Settings")
-                .font(AppFont.title2())
+                .font(.largeTitle.weight(.bold))
                 .foregroundStyle(.primary)
 
-            Text("Local-first controls for appearance, trusted sessions, and bridge diagnostics.")
+            Text("Trusted sessions and bridge diagnostics.")
                 .font(AppFont.body())
                 .foregroundStyle(.secondary)
         }
@@ -107,47 +90,6 @@ struct SecuritySettingsView: View {
         case .failed:
             "Failed"
         }
-    }
-}
-
-private struct SettingsAppearanceCard: View {
-    @Binding var appFontStyle: AppFont.Style
-    @Binding var useLiquidGlass: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Appearance")
-                .font(AppFont.headline())
-
-            HStack {
-                Text("Font")
-                    .font(AppFont.callout())
-                Spacer()
-                Picker("Font", selection: $appFontStyle) {
-                    ForEach(AppFont.Style.allCases) { style in
-                        Text(style.title).tag(style)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-            }
-
-            Text(appFontStyle.subtitle)
-                .font(AppFont.caption())
-                .foregroundStyle(.secondary)
-
-            if GlassPreference.isSupported {
-                Divider()
-
-                Toggle("Liquid Glass", isOn: $useLiquidGlass)
-                    .font(AppFont.callout())
-
-                Text(useLiquidGlass ? "Liquid Glass effects are enabled." : "Using the material fallback.")
-                    .font(AppFont.caption())
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .settingsCard()
     }
 }
 

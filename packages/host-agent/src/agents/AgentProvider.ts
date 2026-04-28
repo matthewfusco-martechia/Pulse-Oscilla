@@ -88,6 +88,7 @@ export abstract class CommandAgentProvider implements AgentProvider {
     const child = spawn(command.bin, command.args, {
       cwd: input.workspaceRoot,
       env: process.env,
+      detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"]
     });
     this.running.set(input.streamId, { child, cancelRequested: false });
@@ -129,7 +130,14 @@ export abstract class CommandAgentProvider implements AgentProvider {
     if (running.child.killed) {
       return { cancelled: true, reason: "Process was already signalled", signal: "SIGTERM" };
     }
-    const signalled = running.child.kill("SIGTERM");
+    const signalled = signalChildProcess(running.child, "SIGTERM");
+    if (signalled) {
+      setTimeout(() => {
+        if (!running.child.killed && running.child.exitCode === null && running.child.signalCode === null) {
+          signalChildProcess(running.child, "SIGKILL");
+        }
+      }, 2_000).unref();
+    }
     return signalled
       ? { cancelled: true, signal: "SIGTERM" }
       : { cancelled: false, reason: `Unable to signal ${this.displayName} process` };
@@ -150,6 +158,19 @@ export abstract class CommandAgentProvider implements AgentProvider {
       });
     });
   }
+}
+
+function signalChildProcess(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): boolean {
+  if (process.platform !== "win32" && child.pid !== undefined) {
+    try {
+      process.kill(-child.pid, signal);
+      return true;
+    } catch {
+      return child.kill(signal);
+    }
+  }
+
+  return child.kill(signal);
 }
 
 export interface AgentCommand {

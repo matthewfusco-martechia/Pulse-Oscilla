@@ -19,6 +19,10 @@ struct PairingView: View {
 
                     PairingCommandCard()
 
+                    if environment.connection.lastEndpoint != nil || environment.connection.lastHostFingerprint != nil {
+                        PairingRecoveryCard()
+                    }
+
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
                             Label("Pairing Payload", systemImage: "qrcode.viewfinder")
@@ -155,6 +159,36 @@ private struct PairingCommandCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(OscillaPalette.ink, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .foregroundStyle(.green)
+        }
+        .oscillaCard()
+    }
+}
+
+private struct PairingRecoveryCard: View {
+    @Environment(AppEnvironment.self) private var environment
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Previous host", systemImage: "clock.arrow.circlepath")
+                .font(.headline)
+
+            Text("Pulse remembers the last host you trusted. Start the host again from the same repo, then scan the fresh QR to recover the workspace.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            if let endpoint = environment.connection.lastEndpoint {
+                LabeledContent("Last endpoint", value: endpoint)
+                    .font(.caption.monospaced())
+            }
+
+            if let fingerprint = environment.connection.lastHostFingerprint {
+                LabeledContent("Fingerprint", value: fingerprint)
+                    .font(.caption.monospaced())
+            }
+
+            Text("Full trusted resume is planned next: persisted device trust, host resume tokens, and catch-up of active runs.")
+                .font(AppFont.caption())
+                .foregroundStyle(.secondary)
         }
         .oscillaCard()
     }

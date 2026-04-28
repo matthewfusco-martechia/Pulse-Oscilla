@@ -46,7 +46,8 @@ struct WorkspaceSidebarSheet: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         conversationSection(title: "Pinned", conversations: pinnedConversations)
-                        conversationSection(title: "Recent", conversations: recentConversations)
+                        conversationSection(title: "Today", conversations: todayConversations)
+                        conversationSection(title: "Previous", conversations: previousConversations)
                         toolsSection
                     }
                     .padding(.horizontal, 4)
@@ -209,6 +210,14 @@ struct WorkspaceSidebarSheet: View {
     private var recentConversations: [WorkspaceConversation] {
         filteredConversations.filter { !$0.isPinned }
     }
+
+    private var todayConversations: [WorkspaceConversation] {
+        recentConversations.filter { Calendar.current.isDateInToday($0.updatedAt) }
+    }
+
+    private var previousConversations: [WorkspaceConversation] {
+        recentConversations.filter { !Calendar.current.isDateInToday($0.updatedAt) }
+    }
 }
 
 private struct WorkspaceSidebarSearchField: View {
@@ -287,6 +296,14 @@ private struct WorkspaceConversationRow: View {
                                 .font(AppFont.caption2())
                                 .foregroundStyle(.secondary)
                         }
+                        if conversation.turns.contains(where: \.isRunning) {
+                            Text("running")
+                                .font(AppFont.caption2(weight: .bold))
+                                .foregroundStyle(.blue)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.blue.opacity(0.12), in: Capsule())
+                        }
                     }
 
                     Text(conversation.preview)
@@ -297,6 +314,12 @@ private struct WorkspaceConversationRow: View {
                     Text(relativeDate)
                         .font(AppFont.caption2())
                         .foregroundStyle(.tertiary)
+
+                    if !conversation.turns.isEmpty {
+                        Text("\(conversation.turns.count) turn\(conversation.turns.count == 1 ? "" : "s")")
+                            .font(AppFont.caption2())
+                            .foregroundStyle(.tertiary)
+                    }
                 }
 
                 Spacer(minLength: 0)

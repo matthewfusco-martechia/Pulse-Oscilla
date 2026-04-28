@@ -9,7 +9,8 @@ enum WorkspaceTimelineReducer {
         let dedupedFileChanges = removeDuplicateFileChangeMessages(in: dedupedUsers)
         let dedupedAssistant = removeDuplicateAssistantMessages(in: dedupedFileChanges)
         let withoutCompletionMarkers = removeSuccessfulCompletionMarkers(in: dedupedAssistant)
-        return normalizeForDisplay(withoutCompletionMarkers)
+        let projectedDiffs = projectAssistantDiffBlocks(in: withoutCompletionMarkers)
+        return normalizeForDisplay(projectedDiffs)
     }
 
     static func assistantResponseAnchorMessageId(in messages: [AgentChatMessage], activeTurnId: String?) -> UUID? {
@@ -115,6 +116,15 @@ enum WorkspaceTimelineReducer {
 
     private static func shouldStartDroppingRawTranscript(_ line: String) -> Bool {
         line.hasPrefix("/bin/")
+            || line == "apply patch"
+            || line.hasPrefix("patch:")
+            || line.hasPrefix("diff --git ")
+            || line.hasPrefix("new file mode ")
+            || line.hasPrefix("deleted file mode ")
+            || line.hasPrefix("index ")
+            || line.hasPrefix("--- ")
+            || line.hasPrefix("+++ ")
+            || line.hasPrefix("@@")
             || line.hasPrefix("exec")
             || line.hasPrefix("succeeded in ")
             || line.hasPrefix("failed in ")
@@ -205,6 +215,10 @@ enum WorkspaceTimelineReducer {
                 continue
             }
 
+            if shouldHideLowValueSystemMessage(normalized) {
+                continue
+            }
+
             let key = dedupeKey(for: normalized)
             guard !seenKeys.contains(key) else { continue }
             seenKeys.insert(key)
@@ -219,6 +233,26 @@ enum WorkspaceTimelineReducer {
         }
 
         return projected
+    }
+
+    private static func shouldHideLowValueSystemMessage(_ message: AgentChatMessage) -> Bool {
+        guard message.role == .system else { return false }
+        let title = message.title?.lowercased() ?? ""
+        let body = message.body.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        if title == "command completed", body.hasPrefix("tokens used") {
+            return true
+        }
+
+        if title == "command completed", body.contains("tokens used") {
+            return true
+        }
+
+        if body == "tokens used" || body.hasPrefix("tokens used\n") || body.contains("\ntokens used\n") {
+            return true
+        }
+
+        return false
     }
 
     private static func dedupeKey(for message: AgentChatMessage) -> String {
@@ -556,6 +590,66 @@ enum WorkspaceTimelineReducer {
                 && message.status == .completed
                 && message.title == "Agent finished")
         }
+    }
+
+    private static func projectAssistantDiffBlocks(in messages: [AgentChatMessage]) -> [AgentChatMessage] {
+        var result: [AgentChatMessage] = []
+        result.reserveCapacity(messages.count)
+
+        for message in messages {
+            guard message.role == .assistant,
+                  message.kind == .chat,
+                  let extracted = extractDiffBlock(from: message.body)
+            else {
+                result.append(message)
+                continue
+            }
+
+            var prose = message
+            prose.body = extracted.prose
+            if !prose.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                result.append(prose)
+            }
+
+            var diffMessage = AgentChatMessage(
+                role: .system,
+                kind: .toolActivity,
+                title: "Code changes",
+                body: extracted.diff,
+                provider: message.provider,
+                streamId: message.streamId,
+                turnId: message.turnId,
+                itemId: "changes-\(message.itemId ?? message.id.uuidString)",
+                isStreaming: message.isStreaming,
+                status: message.status,
+                createdAt: message.createdAt,
+                orderIndex: message.orderIndex + 1
+            )
+            diffMessage.deliveryState = message.deliveryState
+            result.append(diffMessage)
+        }
+
+        return result
+    }
+
+    private static func extractDiffBlock(from text: String) -> (prose: String, diff: String)? {
+        let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        guard let firstDiffIndex = lines.firstIndex(where: { $0.hasPrefix("diff --git ") }) else {
+            return nil
+        }
+
+        let prose = lines[..<firstDiffIndex]
+            .filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed != "apply patch"
+                    && !trimmed.hasPrefix("patch:")
+                    && !trimmed.hasPrefix("/Users/")
+            }
+            .joined(separator: "\n")
+
+        let diff = lines[firstDiffIndex...].joined(separator: "\n")
+        guard diff.contains("diff --git") else { return nil }
+        return (prose, diff)
     }
 
     private static func coalesceAssistantMessagesByTurn(in messages: [AgentChatMessage]) -> [AgentChatMessage] {

@@ -205,6 +205,10 @@ export class BridgeServer {
         return this.git.status();
       case "git.diff":
         return this.git.diff(optionalString(request.payload, "path"));
+      case "git.stage":
+        return this.git.stage(optionalString(request.payload, "path"));
+      case "git.restore":
+        return this.git.restore(optionalString(request.payload, "path"));
       case "git.branch":
         return this.git.branch();
       case "git.commit":

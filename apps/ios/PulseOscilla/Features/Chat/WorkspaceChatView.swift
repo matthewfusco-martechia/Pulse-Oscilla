@@ -6,10 +6,12 @@ struct WorkspaceChatView: View {
     @FocusState private var isComposerFocused: Bool
 
     @State private var selectedProvider: AgentProviderKind = .codex
+    @State private var composerMode: WorkspaceComposerMode = .ask
     @State private var draftPrompt = ""
     @State private var customAgentCommand = ""
     @State private var requireApprovalForWrites = true
     @State private var activeSheet: WorkspaceChatSheet?
+    @State private var queuedPrompts: [QueuedWorkspacePrompt] = []
 
     var body: some View {
         NavigationStack {
@@ -17,6 +19,7 @@ struct WorkspaceChatView: View {
                 WorkspaceChatBackground()
 
                 WorkspaceConversationContainer(
+                    conversationId: environment.connection.activeConversationId,
                     messages: environment.connection.chatMessages,
                     revision: environment.connection.chatRevision,
                     isAgentRunning: environment.connection.isAgentRunning,
@@ -31,6 +34,7 @@ struct WorkspaceChatView: View {
             .toolbar {
                 WorkspaceChatToolbar(
                     workspace: environment.connection.activeWorkspace,
+                    conversationTitle: toolbarConversationTitle,
                     selectedProvider: $selectedProvider,
                     openMenu: { activeSheet = .conversations },
                     openSettings: { activeSheet = .tool(.settings) },
@@ -44,9 +48,15 @@ struct WorkspaceChatView: View {
                     customAgentCommand: $customAgentCommand,
                     requireApprovalForWrites: $requireApprovalForWrites,
                     selectedProvider: $selectedProvider,
+                    composerMode: $composerMode,
                     isFocused: $isComposerFocused,
                     isAgentRunning: environment.connection.isAgentRunning,
+                    queuedPrompts: queuedPrompts,
+                    fileEntries: environment.connection.fileEntries,
                     onOpenTools: { activeSheet = .tools },
+                    onRemoveQueuedPrompt: removeQueuedPrompt,
+                    onEditQueuedPrompt: editQueuedPrompt,
+                    onRefreshFiles: refreshComposerFiles,
                     onRunAction: runQuickAction,
                     onSend: sendDraftPrompt,
                     onStop: {
@@ -57,7 +67,21 @@ struct WorkspaceChatView: View {
             .sheet(item: $activeSheet) { sheet in
                 sheetView(sheet)
             }
+            .onChange(of: environment.connection.isAgentRunning) { _, isRunning in
+                guard !isRunning else { return }
+                runNextQueuedPromptIfNeeded()
+            }
+            .task {
+                await refreshComposerFiles()
+            }
         }
+    }
+
+    private var toolbarConversationTitle: String? {
+        guard let conversation = environment.connection.activeConversation else { return nil }
+        let trimmed = conversation.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "New chat" else { return nil }
+        return trimmed
     }
 
     private func sendDraftPrompt() {
@@ -76,12 +100,71 @@ struct WorkspaceChatView: View {
         isComposerFocused = false
         dismissKeyboard()
 
-        Task {
-            await environment.connection.runAgentChat(
-                prompt: prompt,
+        let preparedPrompt = preparedPrompt(prompt)
+
+        if environment.connection.isAgentRunning {
+            queuedPrompts.append(QueuedWorkspacePrompt(
+                prompt: preparedPrompt,
                 provider: selectedProvider,
                 requireApprovalForWrites: requireApprovalForWrites,
                 customCommand: customAgentCommand
+            ))
+            HapticFeedback.shared.triggerImpactFeedback(style: .medium)
+            return
+        }
+
+        Task {
+            await environment.connection.runAgentChat(
+                prompt: preparedPrompt,
+                provider: selectedProvider,
+                requireApprovalForWrites: requireApprovalForWrites,
+                customCommand: customAgentCommand
+            )
+        }
+    }
+
+    private func preparedPrompt(_ prompt: String) -> String {
+        guard composerMode == .plan else { return prompt }
+        return """
+        Create a concise implementation plan before editing. Include files you expect to touch, risks, verification steps, and wait for my approval before making code changes.
+
+        User request:
+        \(prompt)
+        """
+    }
+
+    private func refreshComposerFiles() async {
+        do {
+            try await environment.connection.send(capability: .filesList, payload: PathPayload(path: "."))
+        } catch {
+            environment.connection.eventLog.append("file autocomplete refresh failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func removeQueuedPrompt(_ id: UUID) {
+        queuedPrompts.removeAll { $0.id == id }
+    }
+
+    private func editQueuedPrompt(_ id: UUID) {
+        guard let index = queuedPrompts.firstIndex(where: { $0.id == id }) else { return }
+        let queued = queuedPrompts.remove(at: index)
+        draftPrompt = queued.prompt
+        selectedProvider = queued.provider
+        requireApprovalForWrites = queued.requireApprovalForWrites
+        customAgentCommand = queued.customCommand
+        isComposerFocused = true
+        HapticFeedback.shared.triggerImpactFeedback(style: .light)
+    }
+
+    private func runNextQueuedPromptIfNeeded() {
+        guard !environment.connection.isAgentRunning, !queuedPrompts.isEmpty else { return }
+        let next = queuedPrompts.removeFirst()
+        Task {
+            await environment.connection.runAgentChat(
+                prompt: next.prompt,
+                provider: next.provider,
+                requireApprovalForWrites: next.requireApprovalForWrites,
+                customCommand: next.customCommand
             )
         }
     }

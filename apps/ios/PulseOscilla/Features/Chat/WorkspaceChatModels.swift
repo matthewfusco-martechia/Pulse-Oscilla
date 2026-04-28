@@ -1,5 +1,98 @@
 import SwiftUI
 
+struct QueuedWorkspacePrompt: Identifiable, Hashable {
+    let id: UUID
+    var prompt: String
+    var provider: AgentProviderKind
+    var requireApprovalForWrites: Bool
+    var customCommand: String
+
+    init(
+        id: UUID = UUID(),
+        prompt: String,
+        provider: AgentProviderKind,
+        requireApprovalForWrites: Bool,
+        customCommand: String
+    ) {
+        self.id = id
+        self.prompt = prompt
+        self.provider = provider
+        self.requireApprovalForWrites = requireApprovalForWrites
+        self.customCommand = customCommand
+    }
+}
+
+enum WorkspaceComposerMode: String, CaseIterable, Identifiable, Hashable {
+    case ask
+    case plan
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .ask:
+            "Ask"
+        case .plan:
+            "Plan"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .ask:
+            "lock"
+        case .plan:
+            "checklist"
+        }
+    }
+}
+
+struct WorkspaceSkillReference: Identifiable, Hashable {
+    let id: String
+    var title: String
+    var promptPrefix: String
+    var subtitle: String
+    var symbol: String
+
+    static let defaults: [WorkspaceSkillReference] = [
+        WorkspaceSkillReference(
+            id: "review",
+            title: "Code Review",
+            promptPrefix: "$review",
+            subtitle: "Find bugs, regressions, and missing tests.",
+            symbol: "text.badge.checkmark"
+        ),
+        WorkspaceSkillReference(
+            id: "plan",
+            title: "Plan Mode",
+            promptPrefix: "$plan",
+            subtitle: "Create a safe implementation plan first.",
+            symbol: "checklist"
+        ),
+        WorkspaceSkillReference(
+            id: "diff",
+            title: "Diff Review",
+            promptPrefix: "$diff",
+            subtitle: "Inspect current changes and summarize risk.",
+            symbol: "plus.forwardslash.minus"
+        ),
+        WorkspaceSkillReference(
+            id: "tests",
+            title: "Test Runner",
+            promptPrefix: "$tests",
+            subtitle: "Run relevant checks and explain failures.",
+            symbol: "testtube.2"
+        ),
+        WorkspaceSkillReference(
+            id: "explain",
+            title: "Explain Codebase",
+            promptPrefix: "$explain",
+            subtitle: "Explain architecture in plain English.",
+            symbol: "book"
+        )
+    ]
+}
+
 enum WorkspaceChatSheet: Identifiable {
     case conversations
     case tools

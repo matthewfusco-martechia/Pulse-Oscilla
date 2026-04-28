@@ -17,6 +17,8 @@ enum Capability: String, Codable, CaseIterable, Identifiable {
     case filesWatch = "files.watch"
     case gitStatus = "git.status"
     case gitDiff = "git.diff"
+    case gitStage = "git.stage"
+    case gitRestore = "git.restore"
     case gitCommit = "git.commit"
     case gitPush = "git.push"
     case gitPull = "git.pull"

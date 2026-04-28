@@ -324,6 +324,7 @@ struct WorkspaceConversation: Identifiable, Hashable, Codable {
     var workspaceRoot: String
     var provider: AgentProviderKind
     var messages: [AgentChatMessage]
+    var turns: [WorkspaceTurn]
     var isPinned: Bool
     var createdAt: Date
     var updatedAt: Date
@@ -334,6 +335,7 @@ struct WorkspaceConversation: Identifiable, Hashable, Codable {
         workspaceRoot: String,
         provider: AgentProviderKind = .codex,
         messages: [AgentChatMessage] = [],
+        turns: [WorkspaceTurn] = [],
         isPinned: Bool = false,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
@@ -343,9 +345,36 @@ struct WorkspaceConversation: Identifiable, Hashable, Codable {
         self.workspaceRoot = workspaceRoot
         self.provider = provider
         self.messages = messages
+        self.turns = turns
         self.isPinned = isPinned
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case workspaceRoot
+        case provider
+        case messages
+        case turns
+        case isPinned
+        case createdAt
+        case updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? "New chat"
+        workspaceRoot = try container.decode(String.self, forKey: .workspaceRoot)
+        provider = try container.decodeIfPresent(AgentProviderKind.self, forKey: .provider) ?? .codex
+        messages = try container.decodeIfPresent([AgentChatMessage].self, forKey: .messages) ?? []
+        turns = try container.decodeIfPresent([WorkspaceTurn].self, forKey: .turns)
+            ?? WorkspaceTurnProjector.project(messages: messages)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
     }
 
     var preview: String {
@@ -356,6 +385,187 @@ struct WorkspaceConversation: Identifiable, Hashable, Codable {
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             ?? "No messages yet"
+    }
+}
+
+enum WorkspaceTurnStatus: String, Hashable, Codable {
+    case ready
+    case running
+    case needsApproval
+    case completed
+    case failed
+}
+
+enum WorkspaceTurnEventKind: String, Hashable, Codable {
+    case userPrompt
+    case assistantText
+    case command
+    case thinking
+    case fileChange
+    case approval
+    case status
+}
+
+struct WorkspaceTurnEvent: Identifiable, Hashable, Codable {
+    let id: UUID
+    var kind: WorkspaceTurnEventKind
+    var messageId: UUID
+    var title: String?
+    var body: String
+    var status: AgentChatStatus
+    var orderIndex: Int
+    var createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        kind: WorkspaceTurnEventKind,
+        messageId: UUID,
+        title: String? = nil,
+        body: String,
+        status: AgentChatStatus,
+        orderIndex: Int,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.kind = kind
+        self.messageId = messageId
+        self.title = title
+        self.body = body
+        self.status = status
+        self.orderIndex = orderIndex
+        self.createdAt = createdAt
+    }
+}
+
+struct WorkspaceTurn: Identifiable, Hashable, Codable {
+    let id: String
+    var provider: AgentProviderKind?
+    var prompt: String
+    var status: WorkspaceTurnStatus
+    var events: [WorkspaceTurnEvent]
+    var createdAt: Date
+    var updatedAt: Date
+
+    var isRunning: Bool {
+        status == .running || status == .needsApproval
+    }
+}
+
+enum WorkspaceTurnProjector {
+    static func project(messages: [AgentChatMessage]) -> [WorkspaceTurn] {
+        let sortedMessages = messages.sorted {
+            if $0.orderIndex != $1.orderIndex {
+                return $0.orderIndex < $1.orderIndex
+            }
+            return $0.createdAt < $1.createdAt
+        }
+
+        var turnsById: [String: WorkspaceTurn] = [:]
+        var turnOrder: [String] = []
+
+        for message in sortedMessages {
+            let turnId = resolvedTurnId(for: message)
+            if turnsById[turnId] == nil {
+                turnsById[turnId] = WorkspaceTurn(
+                    id: turnId,
+                    provider: message.provider,
+                    prompt: message.role == .user ? message.body : "",
+                    status: turnStatus(from: message),
+                    events: [],
+                    createdAt: message.createdAt,
+                    updatedAt: message.createdAt
+                )
+                turnOrder.append(turnId)
+            }
+
+            guard var turn = turnsById[turnId] else { continue }
+            if turn.provider == nil {
+                turn.provider = message.provider
+            }
+            if message.role == .user, turn.prompt.isEmpty {
+                turn.prompt = message.body
+            }
+            turn.events.append(event(from: message))
+            turn.status = mergedStatus(current: turn.status, incoming: turnStatus(from: message))
+            turn.updatedAt = max(turn.updatedAt, message.createdAt)
+            turnsById[turnId] = turn
+        }
+
+        return turnOrder.compactMap { turnId in
+            guard var turn = turnsById[turnId] else { return nil }
+            turn.events.sort {
+                if $0.orderIndex != $1.orderIndex {
+                    return $0.orderIndex < $1.orderIndex
+                }
+                return $0.createdAt < $1.createdAt
+            }
+            return turn
+        }
+    }
+
+    private static func resolvedTurnId(for message: AgentChatMessage) -> String {
+        if let turnId = message.turnId, !turnId.isEmpty { return turnId }
+        if let streamId = message.streamId, !streamId.isEmpty { return streamId }
+        return "message-\(message.id.uuidString)"
+    }
+
+    private static func event(from message: AgentChatMessage) -> WorkspaceTurnEvent {
+        WorkspaceTurnEvent(
+            kind: eventKind(from: message),
+            messageId: message.id,
+            title: message.title,
+            body: message.body,
+            status: message.status,
+            orderIndex: message.orderIndex,
+            createdAt: message.createdAt
+        )
+    }
+
+    private static func eventKind(from message: AgentChatMessage) -> WorkspaceTurnEventKind {
+        if message.role == .user { return .userPrompt }
+        if message.role == .assistant { return .assistantText }
+
+        switch message.kind {
+        case .chat:
+            return .status
+        case .thinking:
+            return .thinking
+        case .toolActivity:
+            return .status
+        case .fileChange:
+            return .fileChange
+        case .commandExecution:
+            return .command
+        case .userInputPrompt:
+            return .approval
+        }
+    }
+
+    private static func turnStatus(from message: AgentChatMessage) -> WorkspaceTurnStatus {
+        if message.isStreaming { return .running }
+        switch message.status {
+        case .ready:
+            return .ready
+        case .streaming:
+            return .running
+        case .needsApproval:
+            return .needsApproval
+        case .completed:
+            return .completed
+        case .failed:
+            return .failed
+        }
+    }
+
+    private static func mergedStatus(
+        current: WorkspaceTurnStatus,
+        incoming: WorkspaceTurnStatus
+    ) -> WorkspaceTurnStatus {
+        if incoming == .failed || current == .failed { return .failed }
+        if incoming == .needsApproval || current == .needsApproval { return .needsApproval }
+        if incoming == .running || current == .running { return .running }
+        if incoming == .completed || current == .completed { return .completed }
+        return incoming
     }
 }
 
