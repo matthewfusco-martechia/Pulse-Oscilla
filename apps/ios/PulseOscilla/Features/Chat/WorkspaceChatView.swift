@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct WorkspaceChatView: View {
     @Environment(AppEnvironment.self) private var environment
@@ -73,6 +74,7 @@ struct WorkspaceChatView: View {
 
         draftPrompt = ""
         isComposerFocused = false
+        dismissKeyboard()
 
         Task {
             await environment.connection.runAgentChat(
@@ -82,6 +84,15 @@ struct WorkspaceChatView: View {
                 customCommand: customAgentCommand
             )
         }
+    }
+
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
     }
 
     private func sendSuggestion(_ prompt: String) {

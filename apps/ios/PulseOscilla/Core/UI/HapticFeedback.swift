@@ -17,4 +17,14 @@ final class HapticFeedback {
         generator.prepare()
         generator.notificationOccurred(type)
     }
+
+    func triggerResponseStartedFeedback() {
+        Task { @MainActor in
+            triggerImpactFeedback(style: .light)
+            try? await Task.sleep(for: .milliseconds(135))
+            triggerImpactFeedback(style: .light)
+            try? await Task.sleep(for: .milliseconds(55))
+            triggerImpactFeedback(style: .medium)
+        }
+    }
 }

@@ -49,14 +49,11 @@ struct WorkspaceMessageRow: View {
             .textSelection(.enabled)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(
-                Color(.tertiarySystemFill).opacity(0.80),
+            .workspaceGlass(
+                tint: Color(.tertiarySystemFill).opacity(0.24),
+                stroke: Color(.separator).opacity(0.10),
                 in: RoundedRectangle(cornerRadius: 24, style: .continuous)
             )
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color(.separator).opacity(0.08), lineWidth: 1)
-            }
             .frame(maxWidth: 330, alignment: .trailing)
             .contextMenu {
                 Button {
@@ -377,7 +374,12 @@ private struct WorkspaceCommandExecutionCard: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(presentation.tint, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .workspaceGlass(
+                tint: presentation.tint,
+                stroke: Color(.separator).opacity(0.08),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous),
+                interactive: true
+            )
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $isShowingDetails) {

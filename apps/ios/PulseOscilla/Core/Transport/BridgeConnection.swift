@@ -48,6 +48,7 @@ final class BridgeConnection {
     @ObservationIgnored private var quickCommandMessageIds: [String: UUID] = [:]
     @ObservationIgnored private var commandMessageIdsByStreamId: [String: UUID] = [:]
     @ObservationIgnored private var pendingAssistantDeltaByStreamId: [String: String] = [:]
+    @ObservationIgnored private var responseHapticStreamIds = Set<String>()
     @ObservationIgnored private var assistantDeltaFlushTask: Task<Void, Never>?
     @ObservationIgnored private var conversationPersistTask: Task<Void, Never>?
 
@@ -151,6 +152,7 @@ final class BridgeConnection {
         activeAgentMessageId = nil
         activeAgentStreamId = streamId
         activeAgentProvider = provider
+        responseHapticStreamIds.remove(streamId)
         isAgentRunning = true
         bumpChat()
 
@@ -574,12 +576,14 @@ final class BridgeConnection {
         let resolvedStreamId = streamId ?? activeAgentStreamId
         switch event.kind {
         case "assistant.text":
+            triggerResponseStartedHapticIfNeeded(streamId: resolvedStreamId)
             appendAssistantText(event.text ?? "", streamId: resolvedStreamId)
         case "tool.started":
             let text = event.text ?? event.path ?? "Command started"
             if isProviderStartEvent(text) {
                 return
             } else {
+                triggerResponseStartedHapticIfNeeded(streamId: resolvedStreamId)
                 appendCommandExecutionMessage(
                     streamId: resolvedStreamId,
                     title: "Command",
@@ -588,6 +592,7 @@ final class BridgeConnection {
                 )
             }
         case "tool.completed":
+            triggerResponseStartedHapticIfNeeded(streamId: resolvedStreamId)
             markLatestCommandCompleted(streamId: resolvedStreamId, detail: event.text ?? "", status: .completed)
         case "run.completed":
             flushPendingAssistantDeltas(for: resolvedStreamId)
@@ -596,6 +601,7 @@ final class BridgeConnection {
             }
         case "run.failed":
             flushPendingAssistantDeltas(for: resolvedStreamId)
+            triggerResponseStartedHapticIfNeeded(streamId: resolvedStreamId)
             appendTimelineMessage(
                 streamId: resolvedStreamId,
                 role: .system,
@@ -611,6 +617,7 @@ final class BridgeConnection {
             }
         case "run.cancelled":
             flushPendingAssistantDeltas(for: resolvedStreamId)
+            triggerResponseStartedHapticIfNeeded(streamId: resolvedStreamId)
             appendTimelineMessage(
                 streamId: resolvedStreamId,
                 role: .system,
@@ -623,6 +630,7 @@ final class BridgeConnection {
                 finishAgentRun(streamId: resolvedStreamId, status: .completed)
             }
         case "approval.requested":
+            triggerResponseStartedHapticIfNeeded(streamId: resolvedStreamId)
             appendTimelineMessage(
                 streamId: resolvedStreamId,
                 role: .system,
@@ -634,12 +642,14 @@ final class BridgeConnection {
             )
             setAgentStatus(streamId: resolvedStreamId, status: .needsApproval)
         case "shell.output":
+            triggerResponseStartedHapticIfNeeded(streamId: resolvedStreamId)
             if let assistantText = assistantTextFromShellOutput(event.text) {
                 appendAssistantText(assistantText, streamId: resolvedStreamId)
             } else {
                 appendShellOutput(event.text ?? "", streamId: resolvedStreamId)
             }
         case "file.changed", "diff.available":
+            triggerResponseStartedHapticIfNeeded(streamId: resolvedStreamId)
             appendTimelineMessage(
                 streamId: resolvedStreamId,
                 role: .system,
@@ -650,6 +660,7 @@ final class BridgeConnection {
                 status: .completed
             )
         default:
+            triggerResponseStartedHapticIfNeeded(streamId: resolvedStreamId)
             appendTimelineMessage(
                 streamId: resolvedStreamId,
                 role: .system,
@@ -660,6 +671,13 @@ final class BridgeConnection {
                 status: event.kind.contains("completed") ? .completed : .streaming
             )
         }
+    }
+
+    private func triggerResponseStartedHapticIfNeeded(streamId: String?) {
+        let key = streamId ?? activeAgentStreamId ?? "unscoped-agent-response"
+        guard !responseHapticStreamIds.contains(key) else { return }
+        responseHapticStreamIds.insert(key)
+        HapticFeedback.shared.triggerResponseStartedFeedback()
     }
 
     private func appendAssistantText(_ text: String, streamId: String?) {
